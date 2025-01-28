@@ -1,0 +1,349 @@
+///$tab Main
+SET ThousandSep=',';
+SET DecimalSep='.';
+SET MoneyThousandSep=',';
+SET MoneyDecimalSep='.';
+SET MoneyFormat='$ ###0.00;-$ ###0.00';
+SET TimeFormat='h:mm:ss TT';
+SET DateFormat='M/D/YYYY';
+SET TimestampFormat='M/D/YYYY h:mm:ss[.fff] TT';
+SET FirstWeekDay=6;
+SET BrokenWeeks=1;
+SET ReferenceDay=0;
+SET FirstMonthOfYear=1;
+SET CollationLocale='en-US';
+SET CreateSearchIndexOnReload=1;
+SET MonthNames='Janvier;Février;Mars;Avril;Mai;Juin;Juillet;Août;Septembre;Octobre;Novembre;Décembre';
+SET LongMonthNames='January;February;March;April;May;June;July;August;September;October;November;December';
+SET DayNames='Mon;Tue;Wed;Thu;Fri;Sat;Sun';
+SET LongDayNames='Monday;Tuesday;Wednesday;Thursday;Friday;Saturday;Sunday';
+SET NumericalAbbreviation='3:k;6:M;9:G;12:T;15:P;18:E;21:Z;24:Y;-3:m;-6:μ;-9:n;-12:p;-15:f;-18:a;-21:z;-24:y';
+///$tab Variable
+Trace ******Chargement des variables******;
+
+Set vPathFile = lib://DataFiles/;
+///$tab Mapping
+Trace ******Chargement de la table de mappage ProductModel******;
+
+MapProductModel:
+Mapping LOAD
+    ProductModelID,
+    Name as NameProdModel
+FROM [$(vPathFile)ProductModel.qvd]
+(qvd);
+
+Trace ******Chargement de la table de mappage Trimestre******;
+MapTrimestre:
+Mapping Load
+	RowNo() as Mois,
+    'T' & Ceil(RowNo()/3) as Trimestre
+Autogenerate(12);//Génère 12 lignes
+
+MapProductCategory:
+Mapping LOAD
+    ProductCategoryID,
+    Name as ProductCategory
+FROM [$(vPathFile)ProductCategory.qvd]
+(qvd);
+
+///$tab Customer
+Trace ******Chargement de la table Customer******;
+
+Customer:
+LOAD
+    CustomerID,
+    PersonID
+//     StoreID//,
+    //TerritoryID,
+    //AccountNumber
+FROM [$(vPathFile)Customer.qvd]
+(qvd);
+
+
+///$tab SalesOrderHeader
+Trace ******Chargement de la table SalesOrderHeader******;
+
+SalesOrderHeader:
+LOAD
+    SalesOrderID,
+    RevisionNumber,
+    Dayname(OrderDate) as OrderDate,
+//     Status,
+    if(OnlineOrderFlag=1,'En Ligne', 'Direct') as CanalVente,
+//     SalesOrderNumber,
+//     PurchaseOrderNumber,
+//     AccountNumber,
+    CustomerID,
+    TerritoryID,
+//     BillToAddressID,
+//     ShipToAddressID,
+    if(ShipMethodID=1,'Terrestre', 'Aérien') as ShipMethod,
+    TaxAmt,
+//     Freight,
+//     LocalCurrency,
+    CustomerID&'-'&TerritoryID&'-'&AccountNumber as CustTerrAccID
+FROM [$(vPathFile)SalesOrderHeader.qvd]
+(qvd);
+
+
+///$tab LeftJoin SalesOrderHeader
+Trace ******LeftJoin SalesOrderHeader******;
+
+Left Join(SalesOrderHeader)
+Load
+	CustomerID,
+    PersonID
+Resident Customer;
+Drop Table Customer;
+///$tab SalesOrderDetail
+Trace ******Chargement de la table SalesOrderDetail******;
+
+// Qualify *;
+
+SalesOrderDetail:
+LOAD
+    SalesOrderID,
+    SalesOrderDetailID,
+    ProductID,
+//     SpecialOfferID,
+    UnitPrice,
+    OrderQty,
+    UnitPriceDiscount,
+//     CarrierTrackingNumber,
+    DueDate,
+    ShipDate,
+    if (num(ShipDate) - num(DueDate) < 0,'EA',
+    	if (num(ShipDate) - num(DueDate) = 0,'DR',
+    		if (num(ShipDate) - num(DueDate) < 2,'1J',
+    			if (num(ShipDate) - num(DueDate) < 3,'2J', 
+                	if (num(ShipDate) - num(DueDate) < 4,'3J','3JP'))))) as FlagDate,
+   	if (num(ShipDate) - num(DueDate) < 0,'En Avance',
+    	if (num(ShipDate) - num(DueDate) = 0,'Délai Respecté',
+    		if (num(ShipDate) - num(DueDate) < 2,'1 jour',
+    			if (num(ShipDate) - num(DueDate) < 3,'2 jours', 
+                	if (num(ShipDate) - num(DueDate) < 4,'3 jours','Plus de 3 jours'))))) as JourRetard
+FROM [$(vPathFile)SalesOrderDetail.qvd]
+(qvd);
+
+// Unqualify *;
+///$tab Product
+Product:
+LOAD
+    ProductID,
+    Name,
+    ProductNumber,
+    MakeFlag,
+//     FinishedGoodsFlag,
+//     "Color",
+//     SafetyStockLevel,
+//     ReorderPoint,
+    StandardCost,
+//     ListPrice,
+//     Size,
+//     SizeUnitMeasureCode,
+//     WeightUnitMeasureCode,
+//     Weight,
+//     DaysToManufacture,
+//     ProductLine,
+//     "Class",
+//     Style,
+    ProductSubcategoryID,
+    ApplyMap('MapProductModel',ProductModelID,Name) as ProductModel,
+    SellStartDate,
+    SellEndDate,
+    DiscontinuedDate
+FROM [lib://DataFiles/Product.qvd]
+(qvd)
+WHere Exists(ProductID);
+
+
+///$tab SalesTerritory
+Trace ******Chargement de la table SalesTerritory******;
+
+SalesTerritory:
+LOAD
+    TerritoryID,
+    Name as Zone,
+    CountryRegionCode,
+    "Group"
+FROM [$(vPathFile)SalesTerritory.qvd]
+(qvd);
+
+
+///$tab ProductSubCategory
+Trace ******Chargement de la table ProductSubCategory******;
+
+ProductSubCategory:
+LOAD
+    ProductSubcategoryID,
+    ApplyMap('MapProductCategory',ProductCategoryID) as ProductCategory,
+    Name as ProductSubCategory
+FROM [$(vPathFile)ProductSubcategory.qvd]
+(qvd);
+///$tab Person
+Trace ******Chargement de la table Person******;
+
+Person:
+LOAD
+    BusinessEntityID as PersonID,
+    if(PersonType='IN','Particulier','Professionnel') as PersonType,
+//     NameStyle,
+//     Title,
+	FirstName & ' ' & LastName as NomPrenom
+//     MiddleName,
+//     Suffix,
+//     EmailPromotion
+FROM [$(vPathFile)Person.qvd]
+(qvd);
+
+
+///$tab Calendar
+Trace ******Création du calendrier******;
+
+//Tri de la table link table sur la date
+Trace ******Tri de la table SalesOrderHeader******;
+
+/*LinkTableSort:
+NOCONCATENATE Load
+	Date
+Resident LinkTable
+Order by Date ASC;*/
+SalesOrderHeader_tri:
+LOAD 
+    OrderDate
+Resident SalesOrderHeader
+Order by OrderDate ASC; //ascendant 
+
+Let vMinDate = Num(Peek('OrderDate',0,'SalesOrderHeader_tri'));
+Let vMaxDate = Num(Peek('OrderDate',-1,'SalesOrderHeader_tri'));
+//Drop Table LinkTableSort;
+Drop Table SalesOrderHeader_tri;
+
+//Produire toutes les dates entre 2 bornes
+CalendrierTemp :
+Load 
+	date($(vMinDate) + IterNo() - 1) as TempDate
+AutoGenerate(1)
+while ($(vMinDate) + IterNo() - 1) <= $(vMaxDate);
+
+//Le calendrier !
+Calendrier:
+Load *,
+Mois & ' '& Année as MonthYear;
+Load
+	TempDate as OrderDate,
+    Year(TempDate) as Année,
+    Month(TempDate) as Mois,
+    Month(TempDate) & '-' &  Day(TempDate) as MoisJour,
+    Day(TempDate) as Jour,
+    Week(TempDate) as Semaine,
+    ApplyMap('MapTrimestre', Num(Month(TempDate)), Null()) as Trimestre,
+    Weekday(TempDate) as JourSemaine,
+    Monthname(TempDate) as AnnéeMois,
+    WeekName(TempDate) as AnnéeSemaine,
+    QuarterName(TempDate) as AnnéeTrimestre
+//     Year(TempDate) & '-' & Month(TempDate) as AnnéeMois,
+//     Year(TempDate) & '-' & Week(TempDate) as AnnéeSemaine
+Resident CalendrierTemp;
+Drop Table CalendrierTemp;
+///$tab Exit Script
+Exit Script;
+///$tab LinkTableForCalendar
+Trace *********Création de la table Link Table*******;
+
+LinkTable:
+Load
+	SalesOrderID,
+    OrderDate as Date,
+    'Order Date' as Source
+Resident SalesOrderHeader;
+
+Concatenate(LinkTable)
+Load 
+	SalesOrderID,
+    ShipDate as Date,
+    'Ship Date' as Source
+Resident SalesOrderDetail;
+
+Concatenate(LinkTable)
+Load 
+	SalesOrderID,
+    DueDate as Date,
+    'Due Date' as Source
+Resident SalesOrderDetail;
+
+
+///$tab SalesTerritoryHistory
+Trace ******Chargement de la table SalesTerritoryHistory******;
+
+SalesTerritoryHistory:
+LOAD
+    BusinessEntityID,
+    TerritoryID,
+    StartDate,
+    EndDate
+FROM [$(vPathFile)SalesTerritoryHistory.qvd]
+(qvd);
+
+
+///$tab Employee
+Trace ******Chargement de la table Employee******;
+
+Employee:
+LOAD
+    EmployeeBusinessEntityID,
+    ParentEmployeeBusinessEntityID,
+    FirstName,
+    LastName,
+    MiddleName,
+    Title,
+    SalesTerritoryKey,
+    HireDate,
+    BirthDate,
+    EmailAddress,
+    Phone,
+    MaritalStatus,
+    EmergencyContactName,
+    EmergencyContactPhone,
+    SalariedFlag,
+    Gender,
+    PayFrequency,
+    BaseRate,
+    VacationHours,
+    SickLeaveHours,
+    CurrentFlag,
+    SalesPersonFlag,
+    DepartmentName,
+    StartDate,
+    EndDate,
+    Status
+FROM [$(vPathFile)Employee.qvd]
+(qvd);
+
+
+///$tab Store
+Trace ******Chargement de la table Store******;
+
+Store:
+LOAD
+    StoreID,
+    StoreName,
+    SalesPersonID
+FROM [$(vPathFile)Store.qvd]
+(qvd);
+
+
+///$tab Vendor
+Trace ******Chargement de la table Vendor******;
+
+Vendor:
+LOAD
+    BusinessEntityID,
+    AccountNumber,
+    Name,
+    CreditRating,
+    PreferredVendorStatus,
+    ActiveFlag
+FROM [$(vPathFile)Vendor.qvd]
+(qvd);
+
